@@ -323,5 +323,10 @@ document.getElementById('confirmRemoveBtn').addEventListener('click', async () =
   setInterval(loadTeam, 30000);
 })();
 </script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+</script>
 </body>
 </html>
