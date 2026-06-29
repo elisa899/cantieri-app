@@ -1,0 +1,14 @@
+{
+  "name": "cantieri-app",
+  "version": "1.0.0",
+  "description": "App per la gestione delle squadre e dei cantieri",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
