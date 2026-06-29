@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Accesso ufficio</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>Accesso ufficio</h1>
+  <a href="/home.html">Torna alla home</a>
+</header>
+<main>
+  <div class="card">
+    <h2>Inserisci la password dell'ufficio</h2>
+    <div id="msgArea"></div>
+    <label for="pwd">Password</label>
+    <input type="password" id="pwd" />
+    <button class="btn block" id="loginBtn">Entra</button>
+  </div>
+</main>
+<script>
+document.getElementById('loginBtn').addEventListener('click', login);
+document.getElementById('pwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+
+async function login() {
+  const password = document.getElementById('pwd').value;
+  const res = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (res.ok) {
+    location.href = '/admin.html';
+  } else {
+    document.getElementById('msgArea').innerHTML = '<div class="error-msg">Password errata.</div>';
+  }
+}
+</script>
+</body>
+</html>
