@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ufficio — Gestione dati</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>Pannello Ufficio</h1>
+  <div>
+    <a href="/admin-report.html">Report ore</a> &nbsp;|&nbsp;
+    <button class="linklike" id="logoutBtn">Esci</button>
+  </div>
+</header>
+<main>
+  <div id="msgArea"></div>
+
+  <div class="card">
+    <h2>Dipendenti</h2>
+    <label for="newEmpName">Nuovo dipendente</label>
+    <input type="text" id="newEmpName" placeholder="Nome e cognome" />
+    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; margin-bottom:10px;">
+      <input type="checkbox" id="newEmpCapo" style="width:auto;" /> È anche caposquadra (può accedere per gestire una squadra)
+    </label>
+    <label for="newEmpRoleLabel">Etichetta opzionale (es. "Titolare")</label>
+    <input type="text" id="newEmpRoleLabel" placeholder="Lascia vuoto se non serve" />
+    <button class="btn block" id="addEmpBtn">Aggiungi dipendente</button>
+    <table style="margin-top:14px">
+      <thead><tr><th>Nome</th><th>Caposquadra</th><th>Etichetta</th><th>Attivo</th></tr></thead>
+      <tbody id="empTableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Cantieri</h2>
+    <label for="newSiteName">Nuovo cantiere</label>
+    <input type="text" id="newSiteName" placeholder="Nome / indirizzo cantiere" />
+    <button class="btn block" id="addSiteBtn">Aggiungi cantiere</button>
+    <table style="margin-top:14px">
+      <thead><tr><th>Nome</th><th>Attivo</th><th></th></tr></thead>
+      <tbody id="siteTableBody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+async function checkAuth() {
+  const res = await fetch('/api/admin/check');
+  const data = await res.json();
+  if (!data.isAdmin) {
+    location.href = '/admin-login.html';
+    return false;
+  }
+  return true;
+}
+
+function showMsg(text, type) {
+  const area = document.getElementById('msgArea');
+  area.innerHTML = `<div class="${type === 'error' ? 'error-msg' : 'success-msg'}">${text}</div>`;
+  setTimeout(() => { area.innerHTML = ''; }, 4000);
+}
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/admin/logout', { method: 'POST' });
+  location.href = '/admin-login.html';
+});
+
+async function loadEmployees() {
+  const res = await fetch('/api/admin/employees');
+  if (res.status === 401) return location.href = '/admin-login.html';
+  const rows = await res.json();
+  const body = document.getElementById('empTableBody');
+  body.innerHTML = '';
+  rows.forEach((e) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${e.name}</td>
+      <td><input type="checkbox" data-action="capo" data-id="${e.id}" ${e.is_capo ? 'checked' : ''} style="width:auto"/></td>
+      <td><input type="text" data-action="roleLabel" data-id="${e.id}" value="${e.role_label ? e.role_label.replace(/"/g, '&quot;') : ''}" placeholder="—" style="max-width:140px"/></td>
+      <td><input type="checkbox" data-action="active" data-id="${e.id}" ${e.active ? 'checked' : ''} style="width:auto"/></td>
+    `;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('[data-action="capo"]').forEach((cb) => {
+    cb.addEventListener('change', () => updateEmployee(cb.dataset.id, { isCapo: cb.checked }));
+  });
+  body.querySelectorAll('[data-action="active"]').forEach((cb) => {
+    cb.addEventListener('change', () => updateEmployee(cb.dataset.id, { active: cb.checked }));
+  });
+  body.querySelectorAll('[data-action="roleLabel"]').forEach((input) => {
+    input.addEventListener('change', () => updateEmployee(input.dataset.id, { roleLabel: input.value.trim() }));
+  });
+}
+
+async function updateEmployee(id, fields) {
+  const res = await fetch('/api/admin/employees/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (res.ok) { showMsg('Dipendente aggiornato.', 'success'); loadEmployees(); }
+}
+
+document.getElementById('addEmpBtn').addEventListener('click', async () => {
+  const name = document.getElementById('newEmpName').value.trim();
+  const isCapo = document.getElementById('newEmpCapo').checked;
+  const roleLabel = document.getElementById('newEmpRoleLabel').value.trim();
+  if (!name) return showMsg('Inserisci un nome.', 'error');
+  const res = await fetch('/api/admin/employees', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, isCapo, roleLabel }),
+  });
+  if (res.ok) {
+    document.getElementById('newEmpName').value = '';
+    document.getElementById('newEmpCapo').checked = false;
+    document.getElementById('newEmpRoleLabel').value = '';
+    showMsg('Dipendente aggiunto.', 'success');
+    loadEmployees();
+  }
+});
+
+async function loadWorksites() {
+  const res = await fetch('/api/admin/worksites');
+  if (res.status === 401) return location.href = '/admin-login.html';
+  const rows = await res.json();
+  const body = document.getElementById('siteTableBody');
+  body.innerHTML = '';
+  rows.forEach((w) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${w.name}</td>
+      <td><input type="checkbox" data-action="active" data-id="${w.id}" ${w.active ? 'checked' : ''} style="width:auto"/></td>
+      <td><span class="muted">${w.active ? '' : 'disattivato'}</span></td>
+    `;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('[data-action="active"]').forEach((cb) => {
+    cb.addEventListener('change', () => updateWorksite(cb.dataset.id, { active: cb.checked }));
+  });
+}
+
+async function updateWorksite(id, fields) {
+  const res = await fetch('/api/admin/worksites/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+  if (res.ok) { showMsg('Cantiere aggiornato.', 'success'); loadWorksites(); }
+}
+
+document.getElementById('addSiteBtn').addEventListener('click', async () => {
+  const name = document.getElementById('newSiteName').value.trim();
+  if (!name) return showMsg('Inserisci un nome.', 'error');
+  const res = await fetch('/api/admin/worksites', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (res.ok) {
+    document.getElementById('newSiteName').value = '';
+    showMsg('Cantiere aggiunto.', 'success');
+    loadWorksites();
+  }
+});
+
+(async function init() {
+  const ok = await checkAuth();
+  if (!ok) return;
+  await loadEmployees();
+  await loadWorksites();
+})();
+</script>
+</body>
+</html>
