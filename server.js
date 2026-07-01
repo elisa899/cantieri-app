@@ -157,7 +157,7 @@ async function handleApi(req, res, pathname, query) {
   }
 
   // Da qui in poi: alcune rotte richiedono privilegi admin
-  const ADMIN_ONLY_PREFIXES = ['/api/admin/employees', '/api/admin/worksites', '/api/admin/report'];
+  const ADMIN_ONLY_PREFIXES = ['/api/admin/employees', '/api/admin/worksites', '/api/admin/report', '/api/admin/reset-data'];
   if (ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p)) && !isAdmin(req)) {
     return sendJSON(res, 401, { error: 'Accesso riservato all\'ufficio' });
   }
@@ -172,7 +172,7 @@ async function handleApi(req, res, pathname, query) {
     return sendJSON(res, 200, rows);
   }
 
-  // Lista dipendenti attivi selezionabili come operai (usata anche per i capi che lavorano come operai)
+  // Lista dipendenti attivi selezionabili come operai
   if (pathname === '/api/employees' && method === 'GET') {
     const rows = db
       .prepare('SELECT id, name, is_capo, role_label FROM employees WHERE active = 1 ORDER BY name')
@@ -367,22 +367,10 @@ async function handleApi(req, res, pathname, query) {
     const body = await readBody(req);
     const fields = [];
     const values = [];
-    if (body.name !== undefined) {
-      fields.push('name = ?');
-      values.push(String(body.name).trim());
-    }
-    if (body.isCapo !== undefined) {
-      fields.push('is_capo = ?');
-      values.push(body.isCapo ? 1 : 0);
-    }
-    if (body.roleLabel !== undefined) {
-      fields.push('role_label = ?');
-      values.push(body.roleLabel ? String(body.roleLabel).trim() : null);
-    }
-    if (body.active !== undefined) {
-      fields.push('active = ?');
-      values.push(body.active ? 1 : 0);
-    }
+    if (body.name !== undefined) { fields.push('name = ?'); values.push(String(body.name).trim()); }
+    if (body.isCapo !== undefined) { fields.push('is_capo = ?'); values.push(body.isCapo ? 1 : 0); }
+    if (body.roleLabel !== undefined) { fields.push('role_label = ?'); values.push(body.roleLabel ? String(body.roleLabel).trim() : null); }
+    if (body.active !== undefined) { fields.push('active = ?'); values.push(body.active ? 1 : 0); }
     if (!fields.length) return sendJSON(res, 400, { error: 'Nessun campo da aggiornare' });
     values.push(id);
     db.prepare(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`).run(...values);
@@ -409,14 +397,8 @@ async function handleApi(req, res, pathname, query) {
     const body = await readBody(req);
     const fields = [];
     const values = [];
-    if (body.name !== undefined) {
-      fields.push('name = ?');
-      values.push(String(body.name).trim());
-    }
-    if (body.active !== undefined) {
-      fields.push('active = ?');
-      values.push(body.active ? 1 : 0);
-    }
+    if (body.name !== undefined) { fields.push('name = ?'); values.push(String(body.name).trim()); }
+    if (body.active !== undefined) { fields.push('active = ?'); values.push(body.active ? 1 : 0); }
     if (!fields.length) return sendJSON(res, 400, { error: 'Nessun campo da aggiornare' });
     values.push(id);
     db.prepare(`UPDATE worksites SET ${fields.join(', ')} WHERE id = ?`).run(...values);
@@ -430,28 +412,40 @@ async function handleApi(req, res, pathname, query) {
 
   if (pathname === '/api/admin/report.csv' && method === 'GET') {
     const data = computeReport(query);
-    const lines = ['Dipendente,Cantiere,Data,Ore,Note'];
+    const SEP = ';';
+    const lines = [`Dipendente${SEP}Cantiere${SEP}Data${SEP}Ore${SEP}Note`];
     for (const row of data.rows) {
       const note = row.inCorso ? 'IN CORSO' : '';
+      const oreIT = row.hours.toFixed(2).replace('.', ',');
       lines.push(
-        [row.employeeName, row.worksiteName, row.date, row.hours.toFixed(2), note]
+        [row.employeeName, row.worksiteName, row.date, oreIT, note]
           .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-          .join(',')
+          .join(SEP)
       );
     }
-    const csv = '﻿' + lines.join('\r\n');
+    const month = query.get('month') || '';
+    const filename = month ? `report-${month}.csv` : 'report.csv';
+    const csv = '\uFEFF' + lines.join('\r\n');
     res.writeHead(200, {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="report.csv"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     });
     return res.end(csv);
+  }
+
+  // ----- ADMIN: reset dati di prova -----
+  if (pathname === '/api/admin/reset-data' && method === 'POST') {
+    db.exec('DELETE FROM assignments');
+    db.exec('DELETE FROM daily_notes');
+    db.exec("DELETE FROM sqlite_sequence WHERE name IN ('assignments', 'daily_notes')");
+    return sendJSON(res, 200, { ok: true });
   }
 
   return sendJSON(res, 404, { error: 'Non trovato' });
 }
 
 function computeReport(query) {
-  const month = query.get('month'); // formato YYYY-MM
+  const month = query.get('month');
   const employeeId = query.get('employeeId');
   const worksiteId = query.get('worksiteId');
 
@@ -464,18 +458,9 @@ function computeReport(query) {
     WHERE 1=1
   `;
   const params = [];
-  if (month) {
-    sql += ' AND a.work_date LIKE ?';
-    params.push(`${month}%`);
-  }
-  if (employeeId) {
-    sql += ' AND a.employee_id = ?';
-    params.push(Number(employeeId));
-  }
-  if (worksiteId) {
-    sql += ' AND a.worksite_id = ?';
-    params.push(Number(worksiteId));
-  }
+  if (month) { sql += ' AND a.work_date LIKE ?'; params.push(`${month}%`); }
+  if (employeeId) { sql += ' AND a.employee_id = ?'; params.push(Number(employeeId)); }
+  if (worksiteId) { sql += ' AND a.worksite_id = ?'; params.push(Number(worksiteId)); }
   sql += ' ORDER BY e.name, a.work_date, a.start_time';
 
   const raw = db.prepare(sql).all(...params);
@@ -496,9 +481,7 @@ function computeReport(query) {
     };
   });
 
-  // Totali per dipendente
   const totalsByEmployee = {};
-  // Totali per dipendente+cantiere
   const totalsByEmployeeSite = {};
   for (const r of rows) {
     totalsByEmployee[r.employeeName] = (totalsByEmployee[r.employeeName] || 0) + r.hours;
@@ -506,7 +489,6 @@ function computeReport(query) {
     totalsByEmployeeSite[key] = (totalsByEmployeeSite[key] || 0) + r.hours;
   }
 
-  // Note giornaliere lasciate dai capisquadra, filtrate per mese se richiesto
   let notesSql = `
     SELECT n.work_date, n.note, n.updated_at, e.name AS capo_name
     FROM daily_notes n
@@ -514,10 +496,7 @@ function computeReport(query) {
     WHERE n.note IS NOT NULL AND TRIM(n.note) != ''
   `;
   const notesParams = [];
-  if (month) {
-    notesSql += ' AND n.work_date LIKE ?';
-    notesParams.push(`${month}%`);
-  }
+  if (month) { notesSql += ' AND n.work_date LIKE ?'; notesParams.push(`${month}%`); }
   notesSql += ' ORDER BY n.work_date DESC, e.name';
   const dailyNotes = db.prepare(notesSql).all(...notesParams);
 
@@ -529,7 +508,6 @@ const server = http.createServer(async (req, res) => {
   try {
     const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = decodeURIComponent(urlObj.pathname);
-
     if (pathname.startsWith('/api/')) {
       return await handleApi(req, res, pathname, urlObj.searchParams);
     }
